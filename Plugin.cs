@@ -4,6 +4,7 @@ using System.IO;
 using System.Reflection;
 using System.Text;
 using BepInEx;
+using BepInEx.Logging;
 using BepInEx.Unity.IL2CPP;
 using HarmonyLib;
 
@@ -12,39 +13,49 @@ namespace LowBudgetRepairsPersianFix
     [BepInPlugin("com.farsiorigin.persianlang", "Low Budget Repairs Persian Language Support", "2.0.0")]
     public class Plugin : BasePlugin
     {
-        private static string langFilePath = Path.Combine(Paths.GameRootPath, "BepInEx", "plugins", "fa.json");
-        private static Dictionary<string, string> Translations = new Dictionary<string, string>();
-        private static HashSet<string> MissingKeys = new HashSet<string>();
+        internal static ManualLogSource Logger = null!;
+        private static readonly string LangFilePath = Path.Combine(Paths.GameRootPath, "BepInEx", "plugins", "fa.json");
+        private static readonly Dictionary<string, string> Translations = new Dictionary<string, string>();
+        private static readonly HashSet<string> MissingKeys = new HashSet<string>();
 
         public override void Load()
         {
-            Log.LogInfo("Persian Language Localization System v2.0.0 Loaded.");
+            Logger = Log;
+            Logger.LogInfo("Persian Language Localization System v2.0.0 Loaded.");
 
             LoadLanguageFile();
 
             var harmony = new Harmony("com.farsiorigin.persianlang");
 
             // ۱. هوک کردن TextMeshPro
-            Type tmpType = AccessTools.TypeByName("TMPro.TMP_Text");
+            Type? tmpType = AccessTools.TypeByName("TMPro.TMP_Text");
             if (tmpType != null)
             {
-                PropertyInfo textProp = AccessTools.Property(tmpType, "text");
+                PropertyInfo? textProp = AccessTools.Property(tmpType, "text");
                 if (textProp?.SetMethod != null)
                 {
-                    MethodInfo prefix = typeof(Plugin).GetMethod(nameof(GenericTextSetter_Prefix), BindingFlags.Static | BindingFlags.NonPublic);
-                    harmony.Patch(textProp.SetMethod, prefix: new HarmonyMethod(prefix));
+                    MethodInfo? prefix = typeof(Plugin).GetMethod(nameof(GenericTextSetter_Prefix), BindingFlags.Static | BindingFlags.NonPublic);
+                    if (prefix != null)
+                    {
+                        harmony.Patch(textProp.SetMethod, prefix: new HarmonyMethod(prefix));
+                        Logger.LogInfo("Successfully patched TMPro.TMP_Text!");
+                    }
                 }
             }
 
-            // ۲. هوک کردن UI Text قدیمی یونتی برای پوشش کامل دیالوگ‌ها
-            Type uiTextType = AccessTools.TypeByName("UnityEngine.UI.Text");
+            // ۲. هوک کردن UI Text اصلی یونتی برای پوشش دیالوگ‌ها
+            Type? uiTextType = AccessTools.TypeByName("UnityEngine.UI.Text");
             if (uiTextType != null)
             {
-                PropertyInfo textProp = AccessTools.Property(uiTextType, "text");
+                PropertyInfo? textProp = AccessTools.Property(uiTextType, "text");
                 if (textProp?.SetMethod != null)
                 {
-                    MethodInfo prefix = typeof(Plugin).GetMethod(nameof(GenericTextSetter_Prefix), BindingFlags.Static | BindingFlags.NonPublic);
-                    harmony.Patch(textProp.SetMethod, prefix: new HarmonyMethod(prefix));
+                    MethodInfo? prefix = typeof(Plugin).GetMethod(nameof(GenericTextSetter_Prefix), BindingFlags.Static | BindingFlags.NonPublic);
+                    if (prefix != null)
+                    {
+                        harmony.Patch(textProp.SetMethod, prefix: new HarmonyMethod(prefix));
+                        Logger.LogInfo("Successfully patched UnityEngine.UI.Text!");
+                    }
                 }
             }
         }
@@ -55,19 +66,16 @@ namespace LowBudgetRepairsPersianFix
 
             string cleanKey = __0.Trim();
 
-            // اگر ترجمه فارسی در فایل زبان وجود داشت، آن را جایگزین و اصلاح کن
-            if (Translations.TryGetValue(cleanKey, out string translatedText))
+            if (Translations.TryGetValue(cleanKey, out string? translatedText))
             {
                 __0 = translatedText;
             }
             else if (ContainsPersian(__0))
             {
-                // اگر متن خودش فارسی بود فقط RTL/Shaping کن
                 __0 = PersianShaper.Fix(__0);
             }
             else
             {
-                // اگر انگلیسی بود و ترجمه نداشت، در لیست متون جدید برای ترجمه ذخیره کن
                 RegisterMissingKey(cleanKey);
             }
         }
@@ -76,17 +84,16 @@ namespace LowBudgetRepairsPersianFix
         {
             try
             {
-                if (!File.Exists(langFilePath))
+                if (!File.Exists(LangFilePath))
                 {
-                    File.WriteAllText(langFilePath, "{\n  \"Go to Zbyszek\": \"برو پیش زبیشک\"\n}", Encoding.UTF8);
+                    File.WriteAllText(LangFilePath, "{\n  \"Go to Zbyszek\": \"برو پیش زبیشک\"\n}", Encoding.UTF8);
                 }
 
-                string jsonContent = File.ReadAllText(langFilePath, Encoding.UTF8);
-                // پارس ساده JSON بدون نیاز به نیوتون‌سافت
+                string jsonContent = File.ReadAllText(LangFilePath, Encoding.UTF8);
                 string[] lines = jsonContent.Split('\n');
                 foreach (var line in lines)
                 {
-                    if (line.Contains(":") && line.Contains("\""))
+                    if (line.Contains(':') && line.Contains('"'))
                     {
                         var parts = line.Split(new[] { ':' }, 2);
                         if (parts.Length == 2)
@@ -101,11 +108,11 @@ namespace LowBudgetRepairsPersianFix
                         }
                     }
                 }
-                Log.LogInfo($"[Persian Language] Loaded {Translations.Count} translated lines.");
+                Logger.LogInfo($"[Persian Language] Loaded {Translations.Count} translated lines.");
             }
             catch (Exception ex)
             {
-                Log.LogError("Failed to load fa.json: " + ex.Message);
+                Logger.LogError("Failed to load fa.json: " + ex.Message);
             }
         }
 
@@ -132,7 +139,6 @@ namespace LowBudgetRepairsPersianFix
         }
     }
 
-    // الگوریتم شکل‌دهی و اتصال حروف فارسی
     public static class PersianShaper
     {
         public static string Fix(string str)
