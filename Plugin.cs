@@ -10,7 +10,7 @@ using HarmonyLib;
 
 namespace LowBudgetRepairsPersianFix
 {
-    [BepInPlugin("com.farsiorigin.persianlang", "Low Budget Repairs Persian Language Support", "2.0.0")]
+    [BepInPlugin("com.farsiorigin.persianlang", "Low Budget Repairs Persian Language Support", "2.1.0")]
     public class Plugin : BasePlugin
     {
         internal static ManualLogSource Logger = null!;
@@ -21,46 +21,46 @@ namespace LowBudgetRepairsPersianFix
         public override void Load()
         {
             Logger = Log;
-            Logger.LogInfo("Persian Language Localization System v2.0.0 Loaded.");
+            Logger.LogInfo("Persian Language System v2.1.0 (Advanced Shaping) Loaded.");
 
             LoadLanguageFile();
 
             var harmony = new Harmony("com.farsiorigin.persianlang");
 
-            // ۱. هوک کردن TextMeshPro
+            // هوک کردن متد Setter برای TextMeshPro
             Type? tmpType = AccessTools.TypeByName("TMPro.TMP_Text");
             if (tmpType != null)
             {
                 PropertyInfo? textProp = AccessTools.Property(tmpType, "text");
                 if (textProp?.SetMethod != null)
                 {
-                    MethodInfo? prefix = typeof(Plugin).GetMethod(nameof(GenericTextSetter_Prefix), BindingFlags.Static | BindingFlags.NonPublic);
-                    if (prefix != null)
-                    {
-                        harmony.Patch(textProp.SetMethod, prefix: new HarmonyMethod(prefix));
-                        Logger.LogInfo("Successfully patched TMPro.TMP_Text!");
-                    }
+                    MethodInfo? prefix = typeof(Plugin).GetMethod(nameof(TextSetter_Prefix), BindingFlags.Static | BindingFlags.NonPublic);
+                    if (prefix != null) harmony.Patch(textProp.SetMethod, prefix: new HarmonyMethod(prefix));
+                }
+
+                // هوک کردن متد SetText متغیر
+                MethodInfo? setTextMethod = AccessTools.Method(tmpType, "SetText", new[] { typeof(string), typeof(bool) });
+                if (setTextMethod != null)
+                {
+                    MethodInfo? prefix = typeof(Plugin).GetMethod(nameof(TextSetter_Prefix), BindingFlags.Static | BindingFlags.NonPublic);
+                    if (prefix != null) harmony.Patch(setTextMethod, prefix: new HarmonyMethod(prefix));
                 }
             }
 
-            // ۲. هوک کردن UI Text اصلی یونتی برای پوشش دیالوگ‌ها
+            // هوک کردن UnityEngine.UI.Text
             Type? uiTextType = AccessTools.TypeByName("UnityEngine.UI.Text");
             if (uiTextType != null)
             {
                 PropertyInfo? textProp = AccessTools.Property(uiTextType, "text");
                 if (textProp?.SetMethod != null)
                 {
-                    MethodInfo? prefix = typeof(Plugin).GetMethod(nameof(GenericTextSetter_Prefix), BindingFlags.Static | BindingFlags.NonPublic);
-                    if (prefix != null)
-                    {
-                        harmony.Patch(textProp.SetMethod, prefix: new HarmonyMethod(prefix));
-                        Logger.LogInfo("Successfully patched UnityEngine.UI.Text!");
-                    }
+                    MethodInfo? prefix = typeof(Plugin).GetMethod(nameof(TextSetter_Prefix), BindingFlags.Static | BindingFlags.NonPublic);
+                    if (prefix != null) harmony.Patch(textProp.SetMethod, prefix: new HarmonyMethod(prefix));
                 }
             }
         }
 
-        private static void GenericTextSetter_Prefix(ref string __0)
+        private static void TextSetter_Prefix(ref string __0)
         {
             if (string.IsNullOrEmpty(__0)) return;
 
@@ -108,7 +108,7 @@ namespace LowBudgetRepairsPersianFix
                         }
                     }
                 }
-                Logger.LogInfo($"[Persian Language] Loaded {Translations.Count} translated lines.");
+                Logger.LogInfo($"Loaded {Translations.Count} translations successfully.");
             }
             catch (Exception ex)
             {
@@ -139,42 +139,92 @@ namespace LowBudgetRepairsPersianFix
         }
     }
 
+    // الگوریتم شکل‌دهی ۴ حالته حروف (Isolated, Initial, Medial, Final)
     public static class PersianShaper
     {
+        private class CharForms
+        {
+            public char Isolated, Final, Initial, Medial;
+            public bool CanConnectBefore, CanConnectAfter;
+
+            public CharForms(char iso, char fin, char ini, char med, bool connBefore = true, bool connAfter = true)
+            {
+                Isolated = iso; Final = fin; Initial = ini; Medial = med;
+                CanConnectBefore = connBefore; CanConnectAfter = connAfter;
+            }
+        }
+
+        private static readonly Dictionary<char, CharForms> Map = new Dictionary<char, CharForms>
+        {
+            {'آ', new CharForms('ﺁ', 'ﺂ', 'ﺁ', 'ﺂ', true, false)},
+            {'ا', new CharForms('ﺍ', 'ﺎ', 'ﺍ', 'ﺎ', true, false)},
+            {'ب', new CharForms('ﺏ', 'ﺐ', 'ﺑ', 'ﺒ')},
+            {'پ', new CharForms('ﭖ', 'ﭗ', 'ﭘ', 'ﭙ')},
+            {'ت', new CharForms('ﺕ', 'ﺖ', 'ﺗ', 'ﺘ')},
+            {'ث', new CharForms('ﺙ', 'ﺚ', 'ﺛ', 'ﺜ')},
+            {'ج', new CharForms('ﺝ', 'ﺞ', 'ﺟ', 'ﺠ')},
+            {'چ', new CharForms('ﭺ', 'ﭻ', 'ﭼ', 'ﭽ')},
+            {'ح', new CharForms('ﺡ', 'ﺢ', 'ﺣ', 'ﺤ')},
+            {'خ', new CharForms('ﺥ', 'ﺦ', 'ﺧ', 'ﺨ')},
+            {'د', new CharForms('ﺩ', 'ﺪ', 'ﺩ', 'ﺪ', true, false)},
+            {'ذ', new CharForms('ﺫ', 'ﺬ', 'ﺫ', 'ﺬ', true, false)},
+            {'ر', new CharForms('ﺭ', 'ﺮ', 'ﺭ', 'ﺮ', true, false)},
+            {'ز', new CharForms('ﺯ', 'ﺰ', 'ﺯ', 'ﺰ', true, false)},
+            {'ژ', new CharForms('ﮊ', 'ﮋ', 'ﮊ', 'ﮋ', true, false)},
+            {'س', new CharForms('ﺱ', 'ﺲ', 'ﺳ', 'ﺴ')},
+            {'ش', new CharForms('ﺵ', 'ﺶ', 'ﺷ', 'ﺸ')},
+            {'ص', new CharForms('ﺹ', 'ﺺ', 'ﺻ', 'ﺼ')},
+            {'ض', new CharForms('ﺽ', 'ﺾ', 'ﺿ', 'ﻀ')},
+            {'ط', new CharForms('ﻁ', 'ﻂ', 'ﻃ', 'ﻄ')},
+            {'ظ', new CharForms('ﻅ', 'ﻆ', 'ﻇ', 'ﻈ')},
+            {'ع', new CharForms('ﻉ', 'ﻊ', 'ﻋ', 'ﻌ')},
+            {'غ', new CharForms('ﻍ', 'ﻎ', 'ﻏ', 'ﻐ')},
+            {'ف', new CharForms('ﻑ', 'ﻒ', 'ﻓ', 'ﻔ')},
+            {'ق', new CharForms('ﻕ', 'ﻖ', 'ﻗ', 'ﻘ')},
+            {'ک', new CharForms('ﮎ', 'ﮏ', 'ﮐ', 'ﮑ')},
+            {'گ', new CharForms('ﮒ', 'ﮕ', 'ﮔ', 'ﮕ')},
+            {'ل', new CharForms('ﻝ', 'ﻞ', 'ﻟ', 'ﻠ')},
+            {'م', new CharForms('ﻡ', 'ﻢ', 'ﻣ', 'ﻤ')},
+            {'ن', new CharForms('ﻥ', 'ﻦ', 'ﻧ', 'ﻨ')},
+            {'و', new CharForms('ﻭ', 'ﻮ', 'ﻭ', 'ﻮ', true, false)},
+            {'ه', new CharForms('ﻩ', 'ﻪ', 'ﻫ', 'ﻬ')},
+            {'ی', new CharForms('ﯼ', 'ﯽ', 'ﯾ', 'ﯿ')}
+        };
+
         public static string Fix(string str)
         {
             if (string.IsNullOrEmpty(str)) return str;
 
-            char[] letters = str.ToCharArray();
-            StringBuilder result = new StringBuilder();
+            char[] chars = str.ToCharArray();
+            StringBuilder output = new StringBuilder();
 
-            for (int i = 0; i < letters.Length; i++)
+            for (int i = 0; i < chars.Length; i++)
             {
-                char c = letters[i];
-                if (c >= 0x0600 && c <= 0x06FF)
+                char current = chars[i];
+
+                if (Map.TryGetValue(current, out var forms))
                 {
-                    c = MapGlyph(c);
+                    bool prevConnects = i > 0 && Map.TryGetValue(chars[i - 1], out var prev) && prev.CanConnectAfter;
+                    bool nextConnects = i < chars.Length - 1 && Map.TryGetValue(chars[i + 1], out var next) && next.CanConnectBefore;
+
+                    if (prevConnects && nextConnects && forms.CanConnectAfter)
+                        output.Append(forms.Medial);
+                    else if (prevConnects)
+                        output.Append(forms.Final);
+                    else if (nextConnects && forms.CanConnectAfter)
+                        output.Append(forms.Initial);
+                    else
+                        output.Append(forms.Isolated);
                 }
-                result.Append(c);
+                else
+                {
+                    output.Append(current);
+                }
             }
 
-            char[] arr = result.ToString().ToCharArray();
-            Array.Reverse(arr);
-            return new string(arr);
-        }
-
-        private static char MapGlyph(char ch)
-        {
-            return ch switch
-            {
-                'آ' => 'ﺁ', 'ا' => 'ﺍ', 'ب' => 'ﺏ', 'پ' => 'ﭖ', 'ت' => 'ﺕ',
-                'ث' => 'ﺙ', 'ج' => 'ﺝ', 'چ' => 'ﭺ', 'ح' => 'ﺡ', 'خ' => 'ﺥ',
-                'د' => 'ﺩ', 'ذ' => 'ﺫ', 'ر' => 'ﺭ', 'ز' => 'ﺯ', 'ژ' => 'ﮊ',
-                'س' => 'ﺱ', 'ش' => 'ﺵ', 'ص' => 'ﺹ', 'ض' => 'ﺽ', 'ط' => 'ﻁ',
-                'ظ' => 'ﻅ', 'ع' => 'ﻉ', 'غ' => 'ﻍ', 'ف' => 'ﻑ', 'ق' => 'ﻕ',
-                'ک' => 'ﮎ', 'گ' => 'ﮒ', 'ل' => 'ﻝ', 'م' => 'ﻡ', 'ن' => 'ﻥ',
-                'و' => 'ﻭ', 'ه' => 'ﻩ', 'ی' => 'ﯼ', _ => ch
-            };
+            char[] result = output.ToString().ToCharArray();
+            Array.Reverse(result);
+            return new string(result);
         }
     }
 }
