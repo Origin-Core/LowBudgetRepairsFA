@@ -1,11 +1,11 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Reflection;
 using System.Text;
 using BepInEx;
 using BepInEx.Unity.IL2CPP;
 using HarmonyLib;
-using TMPro;
 
 namespace LowBudgetRepairsPersianFix
 {
@@ -18,25 +18,40 @@ namespace LowBudgetRepairsPersianFix
         public override void Load()
         {
             Log.LogInfo("Low Budget Repairs Persian RTL Fix v1.1.0 loaded.");
-            Log.LogInfo("Persian RTL / Arabic shaping enabled.");
 
             var harmony = new Harmony("com.farsiorigin.persianrtlfix");
-            harmony.PatchAll();
+
+            // پیدا کردن Dynamic نوع TMP_Text در حافظه بازی
+            Type tmpType = AccessTools.TypeByName("TMPro.TMP_Text");
+            if (tmpType != null)
+            {
+                PropertyInfo textProperty = AccessTools.Property(tmpType, "text");
+                if (textProperty != null && textProperty.SetMethod != null)
+                {
+                    MethodInfo prefixMethod = typeof(Plugin).GetMethod(nameof(TMP_Text_SetText_Prefix), BindingFlags.Static | BindingFlags.NonPublic);
+                    harmony.Patch(textProperty.SetMethod, prefix: new HarmonyMethod(prefixMethod));
+                    Log.LogInfo("Successfully hooked TMPro.TMP_Text.text setter!");
+                }
+                else
+                {
+                    Log.LogWarning("Could not find property 'text' on TMPro.TMP_Text.");
+                }
+            }
+            else
+            {
+                Log.LogWarning("Could not find type 'TMPro.TMP_Text'.");
+            }
         }
 
-        [HarmonyPatch(typeof(TMP_Text), nameof(TMP_Text.text), MethodType.Setter)]
-        public static class TMP_Text_SetText_Patch
+        private static void TMP_Text_SetText_Prefix(ref string __0)
         {
-            public static void Prefix(ref string value)
+            if (string.IsNullOrEmpty(__0)) return;
+
+            ExtractText(__0);
+
+            if (ContainsPersian(__0))
             {
-                if (string.IsNullOrEmpty(value)) return;
-
-                ExtractText(value);
-
-                if (ContainsPersian(value))
-                {
-                    value = ArabicFixer.Fix(value, false, false);
-                }
+                __0 = ArabicFixer.Fix(__0);
             }
         }
 
@@ -64,10 +79,9 @@ namespace LowBudgetRepairsPersianFix
         }
     }
 
-    // الگوریتم داخلی شکل‌دهی حروف و RTL
     public static class ArabicFixer
     {
-        public static string Fix(string str, bool showTashkeel, bool useHinduNumbers)
+        public static string Fix(string str)
         {
             if (string.IsNullOrEmpty(str)) return str;
 
@@ -79,7 +93,6 @@ namespace LowBudgetRepairsPersianFix
                 char c = letters[i];
                 if (c >= 0x0600 && c <= 0x06FF)
                 {
-                    // جابه‌جایی ساده گلیف‌ها جهت اتصال
                     c = MapPersianGlyph(c);
                 }
                 result.Append(c);
